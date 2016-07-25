@@ -16,6 +16,11 @@ __all__ = ['Party', 'PartyMergeView', 'PartyMerge']
 class Party:
     __name__ = 'party.party'
 
+    def get_rec_name(self, name):
+        if Transaction().context.get('show_code'):
+            return "%s (%s)" % (self.name, self.code)
+        return super(Party, self).get_rec_name(name)
+
     def merge_into(self, target):
         """Merge current record to target party.
         """
@@ -83,8 +88,9 @@ class PartyMergeView(ModelView):
         'party.party', None, "Duplicates", readonly=True,
     )
     target = fields.Many2One(
-        'party.party', 'Target', required=True,
-        domain=[('id', 'not in', Eval('duplicates'))],
+        'party.party', 'Merge into', required=True,
+        domain=[('id', 'in', Eval('duplicates'))],
+        context={'show_code': True},
         depends=['duplicates'],
     )
 
@@ -109,6 +115,8 @@ class PartyMerge(Wizard):
 
     def transition_result(self):
         for party in self.merge.duplicates:
+            if party == self.merge.target:
+                continue
             party.merge_into(self.merge.target)
 
         return 'end'
