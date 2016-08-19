@@ -30,7 +30,7 @@ class Party:
         self.active = False
         self.save()
 
-        cursor = Transaction().cursor
+        cursor = Transaction().connection.cursor()
 
         if self._history:
             # Update the party history first.
@@ -63,8 +63,8 @@ class Party:
 
             # Update direct foreign key references
             cursor.execute(*sql_table.update(
-                columns=[getattr(sql_table, field.name)], values=[target.id],
-                where=(getattr(sql_table, field.name) == self.id)
+                columns=[sql_table.field], values=[target.id],
+                where=(sql_table.field == self.id)
             ))
             if Model._history:
                 # If historization is enabled on the model

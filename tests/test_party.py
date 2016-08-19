@@ -7,16 +7,17 @@ import unittest
 import datetime
 from dateutil.relativedelta import relativedelta
 
-from trytond.tests.test_tryton import POOL, USER
-from trytond.tests.test_tryton import DB_NAME, CONTEXT
+from trytond.tests.test_tryton import POOL, with_transaction, \
+    ModuleTestCase, USER, CONTEXT
 from trytond.transaction import Transaction
 import trytond.tests.test_tryton
 
 
-class TestParty(unittest.TestCase):
+class TestParty(ModuleTestCase):
     '''
     Test Party
     '''
+    module = 'party_merge'
 
     def setUp(self):
         """
@@ -147,9 +148,10 @@ class TestParty(unittest.TestCase):
         account_create_chart = POOL.get(
             'account.create_chart', type="wizard")
 
-        account_template, = AccountTemplate.search(
-            [('parent', '=', None)]
-        )
+        account_template, = AccountTemplate.search([
+            ('parent', '=', None),
+            ('name', '=', 'Minimal Account Chart')
+        ])
 
         session_id, _, _ = account_create_chart.create()
         create_chart = account_create_chart(session_id)
@@ -197,122 +199,123 @@ class TestParty(unittest.TestCase):
             'lines': [('create', [{'type': 'remainder'}])]
         }])
 
+    @with_transaction()
     def test0005_merge_parties(self):
-        """Test party merge function.
         """
-        with Transaction().start(DB_NAME, USER, context=CONTEXT):
-            party1, party2, party3 = self.Party.create([{
-                'name': 'Party 1',
-                'addresses': [('create', [{
-                    'name': 'party1',
-                    'street': 'ST2',
-                    'city': 'New Delhi',
-                }])]
-            }, {
-                'name': 'Party 2',
-                'addresses': [('create', [{
-                    'name': 'party2',
-                    'street': 'ST2',
-                    'city': 'Mumbai',
-                }])]
-            }, {
-                'name': 'Party 3',
-                'addresses': [('create', [{
-                    'name': 'party3',
-                    'street': 'ST2',
-                    'city': 'New Delhi',
-                }])]
-            }])
+        Test party merge function.
+        """
+        party1, party2, party3 = self.Party.create([{
+            'name': 'Party 1',
+            'addresses': [('create', [{
+                'name': 'party1',
+                'street': 'ST2',
+                'city': 'New Delhi',
+            }])]
+        }, {
+            'name': 'Party 2',
+            'addresses': [('create', [{
+                'name': 'party2',
+                'street': 'ST2',
+                'city': 'Mumbai',
+            }])]
+        }, {
+            'name': 'Party 3',
+            'addresses': [('create', [{
+                'name': 'party3',
+                'street': 'ST2',
+                'city': 'New Delhi',
+            }])]
+        }])
 
-            # Merge party2, party3 to party1
-            party2.merge_into(party1)
-            party3.merge_into(party1)
+        # Merge party2, party3 to party1
+        party2.merge_into(party1)
+        party3.merge_into(party1)
 
-            self.assertEqual(len(party1.addresses), 3)
+        self.assertEqual(len(party1.addresses), 3)
 
+    @with_transaction()
     def test0010_merge_party_historization(self):
         """
         Test that the historization feature doesn't break after party merge
         """
-        with Transaction().start(DB_NAME, USER, context=CONTEXT) as txn:
-            self.setup_defaults()
+        self.setup_defaults()
 
-            party1, party2, party3 = self.Party.create([{
-                'name': 'John Doe',
-                'addresses': [('create', [{
-                    'name': 'party1',
-                    'street': 'ST2',
-                    'city': 'New Delhi',
-                    'invoice': True,
-                }])]
+        party1, party2, party3 = self.Party.create([{
+            'name': 'John Doe',
+            'addresses': [('create', [{
+                'name': 'party1',
+                'street': 'ST2',
+                'city': 'New Delhi',
+                'invoice': True,
+            }])]
+        }, {
+            'name': 'Jane Doe',
+            'addresses': [('create', [{
+                'name': 'party2',
+                'street': 'ST2',
+                'city': 'Mumbai',
+                'invoice': True,
+            }])],
+        }, {
+            'name': 'Party 3',
+            'addresses': [('create', [{
+                'name': 'party3',
+                'street': 'ST2',
+                'city': 'New Delhi',
+            }])],
+        }])
+
+        journal, = self.Journal.search([('name', '=', 'Revenue')])
+
+        with Transaction().set_context({'company': self.company.id}):
+            self.Invoice.create([{
+                'party': party1.id,
+                'invoice_address': party1.addresses[0],
+                'journal': journal.id,
+                'payment_term': self._create_payment_term()[0].id,
+                'currency': self.currency.id,
+                'account': self._get_account_by_kind('receivable').id,
             }, {
-                'name': 'Jane Doe',
-                'addresses': [('create', [{
-                    'name': 'party2',
-                    'street': 'ST2',
-                    'city': 'Mumbai',
-                    'invoice': True,
-                }])],
-            }, {
-                'name': 'Party 3',
-                'addresses': [('create', [{
-                    'name': 'party3',
-                    'street': 'ST2',
-                    'city': 'New Delhi',
-                }])],
+                'party': party2.id,
+                'invoice_address': party2.addresses[0],
+                'journal': journal.id,
+                'payment_term': self._create_payment_term()[0].id,
+                'currency': self.currency.id,
+                'account': self._get_account_by_kind('receivable').id,
             }])
 
-            journal, = self.Journal.search([('name', '=', 'Revenue')])
+        # Merge party1, party2 into party3
+        party1.merge_into(party3)
+        party2.merge_into(party3)
 
-            with Transaction().set_context({'company': self.company.id}):
-                self.Invoice.create([{
-                    'party': party1.id,
-                    'invoice_address': party1.addresses[0],
-                    'journal': journal.id,
-                    'payment_term': self._create_payment_term()[0].id,
-                    'currency': self.currency.id,
-                    'account': self._get_account_by_kind('receivable').id,
-                }, {
-                    'party': party2.id,
-                    'invoice_address': party2.addresses[0],
-                    'journal': journal.id,
-                    'payment_term': self._create_payment_term()[0].id,
-                    'currency': self.currency.id,
-                    'account': self._get_account_by_kind('receivable').id,
-                }])
+        # Try out in Party's history table
+        PartyHistory = self.Party.__table_history__()
+        cursor = Transaction().connection.cursor()
 
-            # Merge party1, party2 into party3
-            party1.merge_into(party3)
-            party2.merge_into(party3)
+        cursor.execute(*(PartyHistory.select(PartyHistory.id)))
 
-            # Try out in Party's history table
-            PartyHistory = self.Party.__table_history__()
-            cursor = txn.cursor
+        id_list = map(
+            lambda x: x[0],
+            cursor.fetchall()
+        )
 
-            cursor.execute(*(PartyHistory.select(PartyHistory.id)))
+        self.assertNotIn(party1.id, id_list)
+        self.assertNotIn(party2.id, id_list)
+        self.assertIn(party3.id, id_list)
 
-            id_list = map(
-                lambda x: x[0],
-                cursor.fetchall()
-            )
+        # Try out in address's history table
+        AddressHistory = self.Address.__table_history__()
 
-            self.assertNotIn(party1.id, id_list)
-            self.assertNotIn(party2.id, id_list)
-            self.assertIn(party3.id, id_list)
+        cursor.execute(*(AddressHistory.select(AddressHistory.party)))
 
-            # Try out in address's history table
-            AddressHistory = self.Address.__table_history__()
+        id_list = map(
+            lambda x: x[0],
+            cursor.fetchall()
+        )
 
-            cursor.execute(*(AddressHistory.select(AddressHistory.party)))
-
-            id_list = map(
-                lambda x: x[0],
-                cursor.fetchall()
-            )
-
-            self.assertNotIn(party1.id, id_list)
-            self.assertNotIn(party2.id, id_list)
-            self.assertIn(party3.id, id_list)
+        self.assertNotIn(party1.id, id_list)
+        self.assertNotIn(party2.id, id_list)
+        self.assertIn(party3.id, id_list)
 
 
 def suite():
